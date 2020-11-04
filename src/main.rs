@@ -319,6 +319,9 @@ async fn main() -> anyhow::Result<()> {
                     println!("Ok: {:?}", data);
                     if let Some(autologin) = autologin {
                         nation.auth.autologin = Some(autologin);
+                        // Since autologins last as long as passwords do,
+                        // we can delete our stored password.
+                        nation.auth.password = None;
                     }
                     if let Some(pin) = pin {
                         nation.auth.pin = Some(pin);
@@ -337,6 +340,9 @@ async fn main() -> anyhow::Result<()> {
                                 println!("Result: {:?}", data);
                                 if let Some(autologin) = autologin {
                                     nation.auth.autologin = Some(autologin);
+                                    // Since autologins last as long as passwords do,
+                                    // we can delete our stored password.
+                                    nation.auth.password = None;
                                 }
                                 if let Some(pin) = pin {
                                     nation.auth.pin = Some(pin);
