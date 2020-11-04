@@ -312,7 +312,7 @@ async fn main() -> anyhow::Result<()> {
             println!("Request: {:?}", req);
             println!("Request URL: {}", req.url());
             let client = reqwest::Client::builder()
-                .user_agent("nation-rs/0.0.0 7ytd765789@gmail.com").build().unwrap();
+                .user_agent("nation-rs/0.1.0 https://github.com/green-narofsky/nation-rs").build().unwrap();
             let res = req.send(&client).await;
             match res {
                 Ok(api::Response { data, autologin, pin }) => {
