@@ -144,7 +144,7 @@ enum Opt {
         #[structopt(short, long, default_value)]
         profile: ProfilePath,
         /// Retry with autologin or password if pin authentication fails
-        #[structopt(short)]
+        #[structopt(short, long = "retry")]
         retry_pin: bool,
         /// Name of the nation to ping
         nation: String,
@@ -155,6 +155,9 @@ enum Opt {
         profile: ProfilePath,
         name: String,
         password: String,
+        /// Verify the account against the NationStates API
+        #[structopt(short, long)]
+        verify: bool,
     },
     #[allow(dead_code)]
     /// Save new password for a nation
@@ -373,6 +376,7 @@ async fn main() -> anyhow::Result<()> {
             profile,
             name,
             password,
+            verify,
         } => todo!("adding nations to profile on command line"),
         Opt::NewPassword { .. } => todo!("password changes"),
     }
