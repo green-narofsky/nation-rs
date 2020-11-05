@@ -240,8 +240,23 @@ mod api {
         BadPin,
         Other(StatusCode),
     }
+    impl From<RetryFailure> for Failure {
+        fn from(f: RetryFailure) -> Self {
+            match f {
+                RetryFailure::NoAuth => Self::NoAuth,
+                RetryFailure::BadAuth => Self::BadAuth,
+                RetryFailure::Other(code) => Self::Other(code),
+            }
+        }
+    }
+    #[derive(Debug)]
+    pub enum RetryFailure {
+        NoAuth,
+        BadAuth,
+        Other(StatusCode),
+    }
     impl Request<'_> {
-        pub async fn send(&self, client: &reqwest::Client) -> Result<Response, Failure> {
+        async fn send_internal(&self, client: &reqwest::Client, use_pin: bool) -> Result<Response, Failure> {
             // `reqwest` is on Tokio 0.2 still. We're on Tokio 0.3.
             use tokio_compat_02::FutureExt;
             let mut request = client.get(&self.url());
@@ -252,7 +267,7 @@ mod api {
                 // we should retry and save the pin we get next.
                 // This method won't control that behavior, though.
                 // It will simply return a distinct error code for that case.
-                Auth { pin: Some(pin), .. } if pin.valid() => {
+                Auth { pin: Some(pin), .. } if pin.valid() && use_pin => {
                     request = request.header("X-Pin", pin.value);
                     using_pin = true;
                 },
@@ -289,6 +304,26 @@ mod api {
                 })
             }
         }
+        pub async fn send(&self, client: &reqwest::Client) -> Result<Response, Failure> {
+            self.send_internal(client, true).await
+        }
+        /// Send request, and retry if the pin on hand has been invalidated.
+        // This will never return BadPin.
+        pub async fn send_retry(&self, client: &reqwest::Client) -> Result<Response, RetryFailure> {
+            match self.send(client).await {
+                Ok(x) => Ok(x),
+                Err(Failure::BadPin) => match self.send_internal(client, false).await {
+                    Ok(x) => Ok(x),
+                    Err(Failure::BadPin) => unreachable!("bad pin on retry"),
+                    Err(Failure::NoAuth) => Err(RetryFailure::NoAuth),
+                    Err(Failure::BadAuth) => Err(RetryFailure::BadAuth),
+                    Err(Failure::Other(code)) => Err(RetryFailure::Other(code)),
+                },
+                Err(Failure::NoAuth) => Err(RetryFailure::NoAuth),
+                Err(Failure::BadAuth) => Err(RetryFailure::BadAuth),
+                Err(Failure::Other(code)) => Err(RetryFailure::Other(code))
+            }
+        }
     }
 }
 
@@ -313,7 +348,9 @@ async fn main() -> anyhow::Result<()> {
             println!("Request URL: {}", req.url());
             let client = reqwest::Client::builder()
                 .user_agent("nation-rs/0.1.0 https://github.com/green-narofsky/nation-rs").build().unwrap();
-            let res = req.send(&client).await;
+            let res = if retry_pin {
+                req.send_retry(&client).await.map_err(From::from)
+            } else { req.send(&client).await };
             match res {
                 Ok(api::Response { data, autologin, pin }) => {
                     println!("Ok: {:?}", data);
@@ -327,31 +364,6 @@ async fn main() -> anyhow::Result<()> {
                         nation.auth.pin = Some(pin);
                     }
                     profile.save(&profile_path.path)?;
-                },
-                Err(api::Failure::BadPin) => {
-                    let shards = req.shards;
-                    nation.auth.pin = None;
-                    if retry_pin {
-                        let res = api::Request {
-                            shards, nation,
-                        }.send(&client).await;
-                        match res {
-                            Ok(api::Response { data, autologin, pin }) => {
-                                println!("Result: {:?}", data);
-                                if let Some(autologin) = autologin {
-                                    nation.auth.autologin = Some(autologin);
-                                    // Since autologins last as long as passwords do,
-                                    // we can delete our stored password.
-                                    nation.auth.password = None;
-                                }
-                                if let Some(pin) = pin {
-                                    nation.auth.pin = Some(pin);
-                                }
-                                profile.save(&profile_path.path)?;
-                            },
-                            Err(e) => anyhow::bail!("Failure: {:?}", e),
-                        }
-                    }
                 },
                 Err(e) => anyhow::bail!("Failure: {:?}", e),
             }
